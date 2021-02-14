@@ -9,6 +9,11 @@ def buildNoiseModel(errorProba, probaType):
     noise_bit_flip.add_all_qubit_quantum_error(error, ["id"])
     return noise_bit_flip
 
+def signFlipCode(input, ancilla, circuit):
+    circuit.h(input)
+    bitFlipCode(input, ancilla, circuit)
+    circuit.h(input)
+
 def bitFlipCode(input, ancilla, circuit):
 # bit flip correction ----------------------------------------------
     circuit.cx(input[0], ancilla[0])
@@ -21,13 +26,11 @@ def bitFlipCode(input, ancilla, circuit):
 qb1 = qskt.QuantumRegister(3, 'qb1')
 qb2 = qskt.QuantumRegister(3, 'qb2')
 ancilla = qskt.QuantumRegister(4, 'ancilla')
-c = ClassicalRegister(3)
+c = ClassicalRegister(2)
 circ = QuantumCircuit(qb1, qb2, ancilla, c)
 
 # We need the repeated qubits to be synchronize:
-circ.h(qb1[0])
-circ.cx(qb1[0], qb1[1])
-circ.cx(qb1[0], qb1[2])
+circ.h(qb1)
 # Introducing error:
 circ.id(qb1)
 circ.id(qb2)
@@ -35,37 +38,28 @@ circ.id(qb2)
 # # CNOT gate that entangles the two qubits
 circ.cx(qb1, qb2)
 
-# As the 1st qubits is synchronized with its copies, the 2nd qubit is also synchronized with its copies and
-# we can apply the standardd bit flip correction to it
+# First we would fix the sign-flip error on the first qubit
+# We uncompute the CNOT
+circ.cx(qb1, qb2)
+# And we apply the standard sign-flip correction
+signFlipCode(qb1, ancilla[:2], circ)
+# We apply CNOT again but with the fixed qubit only
+circ.cx(qb1[0], qb2)
+# Now all copies of the 2nd qubit are synchronized and we  can use the standard bit-flip correction
 bitFlipCode(qb2, ancilla[2:], circ)
-#
-# # Following the same logic as in a 1-qubit case we rotate the qubit in a synchronized way and apply the bit flip correction code
-circ.cx(qb1, qb2)
-circ.cx(qb1[0], qb1[1])
-circ.cx(qb1[0], qb1[2])
-circ.h(qb1[0])
 
-bitFlipCode(qb1, ancilla[:2], circ)
-circ.h(qb1[0])
-circ.cx(qb1[0], qb1[1])
-circ.cx(qb1[0], qb1[2])
-circ.cx(qb1, qb2)
-
-# # Uncomputing the qubits
-circ.cx(qb1, qb2)
-circ.cx(qb1[0], qb1[1])
-circ.cx(qb1[0], qb1[2])
-circ.h(qb1[0])
+# Uncomputing the qubits
+circ.cx(qb1[0], qb2)
+circ.h(qb1)
 
 # Now we measure the main qubits
 circ.measure(qb1[0], c[0])
 circ.measure(qb2[0], c[1])
-# circ.measure(qb1, c)
 
 cm = qskt.ClassicalRegister(2)
 
 # Perform a noise simulation
-noise_bit_flip = buildNoiseModel(0.1, 0.5)
+noise_bit_flip = buildNoiseModel(0.3, 0.5)
 result = execute(circ, Aer.get_backend('qasm_simulator'),
                  # coupling_map=coupling_map,
                  basis_gates=noise_bit_flip.basis_gates,
